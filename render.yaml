@@ -1,0 +1,11 @@
+services:
+  - type: web
+    name: smart-escalation-api
+    runtime: node
+    buildCommand: cd frontend && npm ci && npm run build && cd ../backend && npm ci && npm run build
+    startCommand: node backend/dist/index.js
+    envVars:
+      - key: OPENAI_API_KEY
+        sync: false       # set manually in the Render dashboard
+      - key: NODE_ENV
+        value: production
