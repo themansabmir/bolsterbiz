@@ -2,7 +2,7 @@ import express from 'express';
 import cors from 'cors';
 import path from 'path';
 import dotenv from 'dotenv';
-import { buildIndex } from './embeddings';
+import { buildIndex, getIndexedChunks } from './embeddings';
 import { handleChat } from './escalation';
 import { ChatRequest, ChatResponse } from './types';
 
@@ -13,9 +13,25 @@ const app = express();
 app.use(cors());
 app.use(express.json());
 
+/**
+ * Initialization middleware for Serverless environments (like Vercel).
+ * Ensures article embeddings are built before handling any requests.
+ */
+app.use(async (req, res, next) => {
+  if (req.path.startsWith('/api') && getIndexedChunks().length === 0) {
+    try {
+      await buildIndex();
+    } catch (err) {
+      console.error('Failed to build index in middleware:', err);
+      return res.status(500).json({ error: 'Internal server error during initialization' });
+    }
+  }
+  next();
+});
+
 // ── Health check ────────────────────────────────────────────────────────────
 app.get('/api/health', (_req, res) => {
-  res.json({ status: 'ok' });
+  res.json({ status: 'ok', indexReady: getIndexedChunks().length > 0 });
 });
 
 // ── Main chat endpoint ───────────────────────────────────────────────────────
@@ -47,18 +63,22 @@ app.get('*', (_req, res) => {
   res.sendFile(path.join(staticDir, 'index.html'));
 });
 
-// ── Start server after building the embeddings index ─────────────────────────
-const PORT = Number(process.env.PORT) || 3001;
+// ── Export for Vercel ───────────────────────────────────────────────────────
+export default app;
 
-(async () => {
-  try {
-    console.log('Building article embeddings index...');
-    await buildIndex();
-    app.listen(PORT, () => {
-      console.log(`Server listening on http://localhost:${PORT}`);
-    });
-  } catch (err) {
-    console.error('Failed to start server:', err);
-    process.exit(1);
-  }
-})();
+// ── Local server startup ─────────────────────────────────────────────────────
+if (require.main === module) {
+  const PORT = Number(process.env.PORT) || 3001;
+  (async () => {
+    try {
+      console.log('Building article embeddings index...');
+      await buildIndex();
+      app.listen(PORT, () => {
+        console.log(`Server listening on http://localhost:${PORT}`);
+      });
+    } catch (err) {
+      console.error('Failed to start server:', err);
+      process.exit(1);
+    }
+  })();
+}
